@@ -1,0 +1,51 @@
+1、将项目软件工具包导入
+2、项目思路：
+	2.1、读取HDFS数据进行ETL清洗操作，并将最终结果写入到HBase中
+	2.2、从HBase中读取数据，进行新增用户统计分析操作，并将结果写入到Mysql
+3、细节实现
+	数据清洗：
+	3.1、LoggerUtil.java
+		3.1.1、主要作用：将字符串数据解析成HashMap键值对集合
+		3.1.2、重要细节：
+			* 字符串的截取
+			* 不合法数据的过滤
+			* 字符串的解码（就是将%相关的字符串编码转换成可读类型的数据）
+			* 错误数据的Logger输出
+	3.2、AnalysisDataMapper.java
+		3.2.1、主要作用：开始清洗HDFS中的日志数据
+		3.2.2、重要细节：
+			* 开始清洗数据，首先使用LoggerUtil将数据转换成Map集合
+			* 将得到的存放原始数据的Map集合封装成事件以用于事件数据合法性的过滤（事件的封装依赖于一个枚举类，
+			  使用事件的alias别名来区分匹配事件）
+				** 事件的封装要按照平台来区分
+					*** 平台区分完成后，按照事件类型来区分（例如en=e_l等)
+			* 事件封装过程中涉及到事件数据完整性的清洗操作
+			* 数据输出：创建rowKey，创建Put对象，等待输出到HBase
+	3.3、AnalysisDataRunner.java
+		3.3.1、组装Job
+			* 设置Mapper以及Mapper的输出Key和输出Value
+			* 设置Reducer的数量为0
+			* 配置输入路径（按照传入的时间读取指定HDFS时间文件夹中的数据）
+			* 设置输出（主要是按照传入时间，创建指定HBase表，以用于数据保存输出）
+	数据分析：
+	3.4、NewInstallUsersMapper.java
+		3.4.1、从Hbase中读取数据开始分析，输出Key的类型为总维度，输出Value的类型为Text（保存的是uuid）读取数据时，要验证数据有效性。
+		3.4.2、创建总维度对象，Text对象。
+		3.4.3、拼装维度
+		3.4.4、按照总维度聚合Text(uuid)
+	3.5、NewInstallUserReducer.java
+		3.5.1、接受Mapper的数据，泛型分别为：StatsUserDimension, Text, StatsUserDimension, MapWritableValue
+		3.5.2、使用set集合去重uuid，并统计uuid的个数
+		3.5.3、将KPI名称和统计出来的个数做一个映射（使用MapWritableValue对象）
+		3.5.4、写出即可
+
+	3.6、NewInstallUserRunner.java：任务组装
+		3.6.1、ICollector.java：将数据最终插入到Mysql时用到的SQL语句的拼装接口
+		3.6.2、NewInstallUserCollector.java：拼装用于插入new_install_user表的SQL语句
+		3.6.3、BrowserNewInstallUserCollector.java：拼装用于插入browser_new_install_user表的SQL语句
+
+		3.6.4、IDimensionConverter.java：接口，通过维度对象（每个维度对象中保存着不同的维度数据），得到维度对应的维度id。
+		3.6.5、DimensionConverterImpl.java：接口的具体实现类
+
+		3.6.6、TransformerMySQLOutputFormat.java：自定义OutputFormat，用于将数据写入到Mysql中
+			* 自定义TransformerRecordWriter
